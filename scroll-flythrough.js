@@ -4,7 +4,13 @@ const CONFIG = {
   frameCount: 196,
   digits: 4,
   extension: "webp",
+
+  // Scroll distance needed to play the entire animation
+  scrollDistance: 3000,
+
+  // Animation smoothness
   smoothing: 0.15,
+
   preloadAhead: 12,
   preloadBehind: 5
 };
@@ -14,7 +20,9 @@ class ScrollFlythrough extends HTMLElement {
     if (this.initialized) return;
     this.initialized = true;
 
-    this.attachShadow({ mode: "open" });
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+    }
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -44,10 +52,14 @@ class ScrollFlythrough extends HTMLElement {
     this.lastDrawn = -1;
     this.lastImage = null;
 
+    // Remember where the animation begins on the page
+    this.startScroll =
+      window.scrollY + this.getBoundingClientRect().top;
+
     this.resize = this.resize.bind(this);
     this.animate = this.animate.bind(this);
 
-    // Detect Wix layout changes
+    // Automatically handle Wix layout changes
     this.resizeObserver = new ResizeObserver(() => {
       this.resize();
     });
@@ -58,10 +70,8 @@ class ScrollFlythrough extends HTMLElement {
 
     this.resize();
 
-    // Load first frame immediately
+    // Load first frame
     this.loadFrame(0);
-
-    // Preload nearby frames
     this.preloadAround(0);
 
     this.animationId = requestAnimationFrame(this.animate);
@@ -92,8 +102,8 @@ class ScrollFlythrough extends HTMLElement {
     ) {
       this.canvas.width = width;
       this.canvas.height = height;
-      this.lastDrawn = -1;
 
+      this.lastDrawn = -1;
       this.drawFrame(Math.round(this.currentFrame));
     }
   }
@@ -139,43 +149,27 @@ class ScrollFlythrough extends HTMLElement {
   }
 
   preloadAround(index) {
-    for (
-      let i = Math.max(0, index - CONFIG.preloadBehind);
-      i <= Math.min(CONFIG.frameCount - 1, index + CONFIG.preloadAhead);
-      i++
-    ) {
+    const start = Math.max(
+      0,
+      index - CONFIG.preloadBehind
+    );
+
+    const end = Math.min(
+      CONFIG.frameCount - 1,
+      index + CONFIG.preloadAhead
+    );
+
+    for (let i = start; i <= end; i++) {
       this.loadFrame(i);
     }
   }
 
-  findScrollSection() {
-    let element = this.parentElement;
-
-    while (element && element !== document.body) {
-      const rect = element.getBoundingClientRect();
-
-      if (rect.height > window.innerHeight * 1.5) {
-        return element;
-      }
-
-      element = element.parentElement;
-    }
-
-    return null;
-  }
-
   getScrollProgress() {
-    const section = this.findScrollSection();
+    // Scroll position relative to where the element starts
+    const scrollPosition = window.scrollY - this.startScroll;
 
-    if (!section) return 0;
-
-    const rect = section.getBoundingClientRect();
-
-    const scrollDistance = rect.height - window.innerHeight;
-
-    if (scrollDistance <= 0) return 0;
-
-    const progress = -rect.top / scrollDistance;
+    const progress =
+      scrollPosition / CONFIG.scrollDistance;
 
     return Math.max(0, Math.min(1, progress));
   }
@@ -183,8 +177,8 @@ class ScrollFlythrough extends HTMLElement {
   drawFrame(index) {
     let img = this.frames[index];
 
+    // Keep the last loaded frame visible while loading
     if (!img || !img.complete || !img.naturalWidth) {
-      // Keep the last loaded image visible while loading
       img = this.lastImage || this.frames[0];
     }
 
@@ -196,7 +190,7 @@ class ScrollFlythrough extends HTMLElement {
     const iw = img.naturalWidth;
     const ih = img.naturalHeight;
 
-    // Cover the canvas while preserving aspect ratio
+    // Fill the screen without stretching the image
     const scale = Math.max(cw / iw, ch / ih);
 
     const width = iw * scale;
@@ -215,7 +209,8 @@ class ScrollFlythrough extends HTMLElement {
   animate() {
     const progress = this.getScrollProgress();
 
-    const targetFrame = progress * (CONFIG.frameCount - 1);
+    const targetFrame =
+      progress * (CONFIG.frameCount - 1);
 
     this.currentFrame +=
       (targetFrame - this.currentFrame) * CONFIG.smoothing;
@@ -243,5 +238,8 @@ class ScrollFlythrough extends HTMLElement {
 }
 
 if (!customElements.get("scroll-flythrough")) {
-  customElements.define("scroll-flythrough", ScrollFlythrough);
+  customElements.define(
+    "scroll-flythrough",
+    ScrollFlythrough
+  );
 }
